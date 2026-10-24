@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 type Report = { id: string; praia: string; autor: string; tamanho: string; vento: string; texto: string; foto: string; createdAt: string; aoVivoUrl?: string; };
 type Cam = { id: string; praia: string; label: string; liveUrl: string; plataforma: "youtube" | "instagram"; };
-type Noticia = { id: string; titulo: string; resumo: string; foto: string; fonte: string; data: string; };
+//type Noticia = { id: string; titulo: string; resumo: string; foto: string; fonte: string; data: string; };
 const PRAIAS = ["Itamambuca","Vermelha do Norte","Vermelha do Centro","Félix","Prumirim","Toninhas","Tenório","Praia Grande","Perequê Açú","Domingas Dias","Sununga"];
 const INFORMAL: Record<string,string> = {"Itamambuca":"itamambuca","Vermelha do Norte":"vermelhinha do norte","Vermelha do Centro":"vermelhinha do centro","Félix":"felixzinho","Prumirim":"prumirim","Toninhas":"toninhas","Tenório":"tenório","Praia Grande":"praiagrandão","Perequê Açú":"pereque","Domingas Dias":"domingas","Sununga":"sununga"};
 const TAMANHO_FALA: Record<string,string> = {"0,5m":"meio metrinho maralzinho","0,8m":"quase 1m glass","1,0m":"1 metrinho cavado","1,5m":"1,5m pressão!","2,0m":"2m tá monstro"};

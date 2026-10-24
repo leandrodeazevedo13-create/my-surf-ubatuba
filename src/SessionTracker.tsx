@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 type Session = { id: string; data: string; remada: number; ondas: number; velMax: number; duracao: number; tamanho: string; };
 export default function SessionTracker(){
   const [running,setRunning]=useState(false);
