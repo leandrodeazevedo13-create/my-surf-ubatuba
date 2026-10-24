@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
+import { db } from "./firebase";
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from "firebase/firestore";
 
-type Report = { id: string; praia: string; autor: string; tamanho: string; vento: string; texto: string; foto: string; createdAt: string; aoVivoUrl?: string; };
+type Report = { id: string; praia: string; autor: string; tamanho: string; vento: string; texto: string; foto: string; createdAt: string; aoVivoUrl?: string; createdAtServer?: Timestamp | null; };
 type Cam = { id: string; praia: string; label: string; liveUrl: string; plataforma: "youtube" | "instagram"; };
 type PicoData = { praia: string; onda: string; vento: string; periodo: string; mare: string; tendencia: "subindo" | "descendo" | "estavel"; variacao: string; fundo: string; nivel: string; crowd: string; };
 
@@ -21,16 +23,25 @@ const BG_ITALO = "data:image/webp;base64,UklGRuyMAABXRUJQVlA4IOCMAACwmwGdASr0ARQ
 const NOTICIAS = [{ id:"1", titulo:"Swell de sul chega com 1,5m", resumo:"Subida até quarta 13s.", foto:"https://images.unsplash.com/photo-1502680390542-bdb6c82a8aea?w=600&h=340&fit=crop", fonte:"Surfguru", data:"hoje" },{ id:"2", titulo:"Vermelha do Centro crowd baixo", resumo:"Glass e terral manhã.", foto:"https://images.unsplash.com/photo-1519046904884-53103b34f59d?w=600&h=340&fit=crop", fonte:"My Surf", data:"hoje" },];
 
 export default function App(){
-  const [reports,setReports]=useState<Report[]>(()=>{
-    const s=localStorage.getItem("ms-ubatuba-reports-v3");
-    if(s){ try{return JSON.parse(s) as Report[]}catch{}}
-    return [
-      { id:"1", praia:"Vermelha do Centro", autor:"leandro", tamanho:"0,5m", vento:"Terral", texto:"Glass hoje cedo", foto:"https://images.unsplash.com/photo-1502680390542-bdb6c82a8aea?w=800&h=500&fit=crop", createdAt:new Date(Date.now()-60000*5).toISOString() },
-      { id:"2", praia:"Itamambuca", autor:"dudu", tamanho:"1,0m", vento:"Maral", texto:"Cavado e irado", foto:"https://images.unsplash.com/photo-1502680393104-0bdd05f53aa8?w=800&h=500&fit=crop", createdAt:new Date(Date.now()-60000*12).toISOString() },
-      { id:"3", praia:"Perequê Açú", autor:"ss", tamanho:"1,0m", vento:"Terral", texto:"Quase 1m glass", foto:"https://images.unsplash.com/photo-1502680393104-0bdd05f53aa8?w=800&h=500&fit=crop", createdAt:new Date().toISOString() },
-    ] as Report[];
-  });
+  const [reports,setReports]=useState<Report[]>([]);
+  const [loading,setLoading]=useState<boolean>(true);
   const [cams]=useState<Cam[]>(()=>{const s=localStorage.getItem("ms-ubatuba-cams-v3"); return s?JSON.parse(s) as Cam[]:[];});
+  // FIRESTORE REALTIME
+  useEffect(()=>{
+    const q = query(collection(db, "reports"), orderBy("createdAtServer","desc"));
+    const unsub = onSnapshot(q, (snap)=>{
+      const dados: Report[] = snap.docs.map(d=>{
+        const data = d.data() as any;
+        return { id: d.id, praia: data.praia, autor: data.autor, tamanho: data.tamanho, vento: data.vento, texto: data.texto, foto: data.foto, createdAt: data.createdAt || new Date().toISOString(), aoVivoUrl: data.aoVivoUrl } as Report;
+      });
+      if(dados.length===0){
+        const local = localStorage.getItem("ms-ubatuba-reports-v3");
+        if(local){ try{ setReports(JSON.parse(local) as Report[]); }catch{} }
+      } else { setReports(dados); }
+      setLoading(false);
+    }, (err)=>{ console.error("Firestore error", err); setLoading(false); });
+    return ()=>unsub();
+  },[]);
   const [praiaSel,setPraiaSel]=useState<string>(PRAIAS[2]); const [autor,setAutor]=useState<string>(""); const [tamanho,setTamanho]=useState<string>("0,5m"); const [vento,setVento]=useState<string>("Terral"); const [texto,setTexto]=useState<string>(""); const [aoVivoUrl,setAoVivoUrl]=useState<string>(""); const [fotoPreview,setFotoPreview]=useState<string>(""); const [filtro,setFiltro]=useState<string>("Todas");
   const [leftOpen,setLeftOpen]=useState({reg:true, prev:false, picos:false});
   const [tabMeio,setTabMeio]=useState<string>("posts");
@@ -41,7 +52,8 @@ export default function App(){
   const [bannerIdx,setBannerIdx]=useState<number>(0);
   const fileRef=useRef<HTMLInputElement>(null);
 
-  useEffect(()=>{localStorage.setItem("ms-ubatuba-reports-v3",JSON.stringify(reports));},[reports]);
+  // localStorage backup removido - Firestore é fonte da verdade
+  useEffect(()=>{ if(reports.length>0) localStorage.setItem("ms-ubatuba-reports-v3",JSON.stringify(reports)); },[reports]);
   useEffect(()=>{
     const mock: PicoData[] = (PRAIAS as readonly string[]).map((p:string)=>{
       const c = COORDS[p];
@@ -58,7 +70,17 @@ export default function App(){
   useEffect(()=>{ const id = setInterval(()=>{ setBannerIdx((i:number)=> (i+1)%3); }, 5000); return ()=>clearInterval(id); },[]);
 
   const handleFile=(e: React.ChangeEvent<HTMLInputElement>)=>{const f=e.target.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=()=>setFotoPreview(r.result as string); r.readAsDataURL(f);};
-  const registrar=()=>{if(!fotoPreview){alert("Foto!"); return;} if(!autor){alert("Nome!"); return;} const novo:Report={id:Date.now().toString(),praia:praiaSel,autor,tamanho,vento,texto:texto||"Condição agora",foto:fotoPreview,createdAt:new Date().toISOString(),aoVivoUrl:aoVivoUrl||undefined}; setReports([novo,...reports]); setTexto(""); setFotoPreview(""); setAoVivoUrl("");};
+  const registrar= async ()=>{
+    if(!fotoPreview){alert("Foto!"); return;}
+    if(!autor){alert("Nome!"); return;}
+    try{
+      await addDoc(collection(db, "reports"), {
+        praia: praiaSel, autor, tamanho, vento, texto: texto||"Condição agora", foto: fotoPreview,
+        createdAt: new Date().toISOString(), createdAtServer: serverTimestamp(), aoVivoUrl: aoVivoUrl||null
+      });
+      setTexto(""); setFotoPreview(""); setAoVivoUrl("");
+    }catch(err){ console.error(err); alert("Erro Firebase: "+(err as any).message); }
+  };
 
   const filtrados:Report[] = filtro==="Todas"?reports:reports.filter((r:Report)=>r.praia===filtro);
   const picosFiltrados: PicoData[] = filtro==="Todas"?picosData:picosData.filter((p:PicoData)=>p.praia===filtro);
@@ -69,7 +91,7 @@ export default function App(){
       <div className="w-full bg-gradient-to-r from-[#4fb3d9] to-[#4dbb8a] text-white px-4 py-2 flex justify-between items-center shrink-0">
         <div className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-white text-[#4fb3d9] font-black flex items-center justify-center text-xs">M</div><span className="font-black text-[12px]">MY SURF UBATUBA - 11 praias</span></div>
         <div className="font-black text-[12px] bg-white/20 px-3 py-1 rounded-full">UBATUBA Capital do Surf</div>
-        <div className="text-[10px] hidden md:block">24°C • Toledo 77 • Medina</div>
+        <div className="text-[10px] hidden md:block">24°C • Toledo 77 • Medina • FIREBASE {loading? "⏳":"🔥"} {reports.length}</div>
       </div>
       <div className="w-full bg-[#1a2a44] text-white px-3 py-1.5 flex items-center gap-3 shrink-0 border-b border-white/10">
         <div className="bg-[#ffcc00] text-black font-black text-[10px] px-3 py-1 rounded-full shrink-0 animate-pulse">ROLANDO ONDA AQUI ---&gt;</div>
